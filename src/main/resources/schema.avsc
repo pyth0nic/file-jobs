@@ -1,0 +1,7 @@
+{
+  "name": "record",
+  "type": "record",
+  "fields": [
+    {"name": "line", "type": "string"}
+  ]
+}

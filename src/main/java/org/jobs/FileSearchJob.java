@@ -46,9 +46,7 @@ import java.util.zip.ZipInputStream;
 public class FileSearchJob {
 
 	private static InputStream getS3File(String filename) {
-		ProfileCredentialsProvider provider = new ProfileCredentialsProvider("aws.conf","default");
-
-		AmazonS3 s3Client = new AmazonS3Client(provider);
+		AmazonS3 s3Client = new AmazonS3Client(new EnvironmentVariableCredentialsProvider());
 		S3Object object = s3Client.getObject(new GetObjectRequest("test-nnn", filename));
 		InputStream objectData = object.getObjectContent();
 		return objectData;

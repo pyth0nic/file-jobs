@@ -18,6 +18,9 @@ package org.jobs;
  * limitations under the License.
  */
 
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
@@ -31,6 +34,7 @@ import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.hadoop.mapreduce.HadoopOutputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.parquet.avro.AvroParquetOutputFormat;
@@ -45,7 +49,7 @@ public class FileSearchJob {
 		ProfileCredentialsProvider provider = new ProfileCredentialsProvider("aws.conf","default");
 
 		AmazonS3 s3Client = new AmazonS3Client(provider);
-		S3Object object = s3Client.getObject(new GetObjectRequest("candidate-47-s3-bucket", filename));
+		S3Object object = s3Client.getObject(new GetObjectRequest("test-nnn", filename));
 		InputStream objectData = object.getObjectContent();
 		return objectData;
 	}
@@ -65,9 +69,9 @@ public class FileSearchJob {
 
 	public static void main(String[] args) throws Exception {
 		// set up the batch execution environment
-		File file = new File("./x.zip");
-		FileInputStream is = new FileInputStream(file);
-	//	InputStream is = getS3File("news.zip");
+		//File file = new File("./x.zip");
+		//FileInputStream is = new FileInputStream(file);
+		InputStream is = getS3File("x.zip");
 
 		readFile(is);
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -84,7 +88,7 @@ public class FileSearchJob {
 		FileOutputFormat.setCompressOutput(job, true);
 		FileOutputFormat.setOutputCompressorClass(job, CompressionCodecName.SNAPPY.getHadoopCompressionCodecClass());
 		HadoopOutputFormat<Void, IndexedRecord>  hadoopOutputFormat = new HadoopOutputFormat<>(new AvroParquetOutputFormat<IndexedRecord>(), job);
-		FileOutputFormat.setOutputPath(job, new org.apache.hadoop.fs.Path("./my-parquet"));
+		FileOutputFormat.setOutputPath(job, new Path("s3a://test-nnn/my-parquet"));
 		final Schema schema = new Schema.Parser().parse(CSV.class.getClassLoader().getResourceAsStream("schema.avsc"));
 		AvroParquetOutputFormat.setSchema(job, schema);
 

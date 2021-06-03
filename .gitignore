@@ -1,0 +1,6 @@
+/target
+.idea
+*.txt
+*.zip
+*.iml
+aws.conf

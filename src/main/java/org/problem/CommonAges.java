@@ -1,13 +1,7 @@
 package org.problem;
 
-import it.unimi.dsi.fastutil.Hash;
-import org.apache.commons.lang3.Range;
-import org.apache.commons.math3.util.Pair;
-import scala.Int;
-
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class CommonAges {
     /**

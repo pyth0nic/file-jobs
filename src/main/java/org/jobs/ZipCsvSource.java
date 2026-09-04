@@ -2,7 +2,6 @@ package org.jobs;
 
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
-import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
@@ -18,9 +17,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -29,8 +29,8 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
     private final int maxEntries;
     private final long maxArchiveBytes;
     private final long maxEntryBytes;
-    private transient ListState<String> completedState;
-    private transient Set<String> completed;
+    private transient ListState<ArchiveProgress> progressState;
+    private transient Map<String, ArchiveProgress> progress;
     private transient Counter failedArchives;
     private volatile boolean running = true;
 
@@ -52,11 +52,14 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
         int subtasks = getRuntimeContext().getNumberOfParallelSubtasks();
         for (int index = subtask; running && index < archives.size(); index += subtasks) {
             String archive = archives.get(index);
-            if (completed.contains(archive)) continue;
+            ArchiveProgress checkpoint = progress.get(archive);
+            if (checkpoint != null && checkpoint.completed) continue;
             try {
-                readArchive(archive, context);
+                readArchive(archive, checkpoint, context);
                 synchronized (context.getCheckpointLock()) {
-                    completed.add(archive);
+                    synchronized (progress) {
+                        progress.put(archive, ArchiveProgress.completed(archive));
+                    }
                 }
             } catch (IOException exception) {
                 failedArchives.inc();
@@ -65,13 +68,14 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
         }
     }
 
-    private void readArchive(String archive, SourceContext<ZipLine> context) throws IOException {
+    private void readArchive(String archive, ArchiveProgress checkpoint, SourceContext<ZipLine> context) throws IOException {
         Path path = new Path(archive);
         FileSystem fileSystem = path.getFileSystem();
         try (InputStream raw = fileSystem.open(path);
              InputStream limited = new LimitedInputStream(raw, maxArchiveBytes, "archive");
              ZipInputStream zip = new ZipInputStream(limited, StandardCharsets.UTF_8)) {
             int entries = 0;
+            boolean foundCheckpointEntry = checkpoint == null;
             ZipEntry entry;
             while (running && (entry = zip.getNextEntry()) != null) {
                 if (++entries > maxEntries) throw new IOException("ZIP entry limit exceeded");
@@ -79,36 +83,69 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
                     zip.closeEntry();
                     continue;
                 }
+                if (!foundCheckpointEntry) {
+                    if (!entry.getName().equals(checkpoint.entry)) {
+                        zip.closeEntry();
+                        continue;
+                    }
+                    foundCheckpointEntry = true;
+                }
                 BufferedReader lines = new BufferedReader(new InputStreamReader(
                         new LimitedInputStream(zip, maxEntryBytes, "entry " + entry.getName()), StandardCharsets.UTF_8));
                 String line;
                 long lineNumber = 0;
                 while (running && (line = lines.readLine()) != null) {
                     lineNumber++;
+                    if (checkpoint != null && entry.getName().equals(checkpoint.entry)
+                            && lineNumber <= checkpoint.lineNumber) {
+                        continue;
+                    }
                     synchronized (context.getCheckpointLock()) {
                         context.collect(new ZipLine(archive, entry.getName(), lineNumber, line));
+                        synchronized (progress) {
+                            progress.put(archive, ArchiveProgress.at(archive, entry.getName(), lineNumber));
+                        }
                     }
                 }
                 zip.closeEntry();
+            }
+            if (running && !foundCheckpointEntry) {
+                throw new IOException("Checkpoint entry no longer exists in archive");
             }
         }
     }
 
     static boolean isCsvEntry(String name) {
-        return name != null && !name.startsWith("/") && !name.contains("..") && name.toLowerCase().endsWith(".csv");
+        if (name == null) return false;
+        String normalized = name.replace('\\', '/');
+        if (normalized.startsWith("/") || normalized.startsWith("//") || normalized.matches("^[A-Za-z]:/.*")) {
+            return false;
+        }
+        for (String segment : normalized.split("/")) {
+            if (segment.equals("..")) return false;
+        }
+        return normalized.toLowerCase(Locale.ROOT).endsWith(".csv");
     }
 
     @Override
     public void snapshotState(FunctionSnapshotContext context) throws Exception {
-        completedState.update(new java.util.ArrayList<>(completed));
+        synchronized (progress) {
+            progressState.update(new java.util.ArrayList<>(progress.values()));
+        }
     }
 
     @Override
     public void initializeState(FunctionInitializationContext context) throws Exception {
-        completedState = context.getOperatorStateStore().getListState(
-                new ListStateDescriptor<>("completed-archives", StringSerializer.INSTANCE));
-        completed = new HashSet<>();
-        for (String archive : completedState.get()) completed.add(archive);
+        progressState = context.getOperatorStateStore().getUnionListState(
+                new ListStateDescriptor<>("archive-progress", ArchiveProgress.class));
+        progress = new HashMap<>();
+        for (ArchiveProgress checkpoint : progressState.get()) {
+            ArchiveProgress existing = progress.get(checkpoint.archive);
+            if (existing == null || checkpoint.completed
+                    || (!existing.completed && checkpoint.lineNumber > existing.lineNumber)) {
+                progress.put(checkpoint.archive, checkpoint);
+            }
+        }
     }
 
     @Override
@@ -127,6 +164,31 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
             this.entry = entry;
             this.lineNumber = lineNumber;
             this.line = line;
+        }
+
+    }
+
+    public static final class ArchiveProgress implements java.io.Serializable {
+        public String archive;
+        public String entry;
+        public long lineNumber;
+        public boolean completed;
+
+        public ArchiveProgress() { }
+
+        private ArchiveProgress(String archive, String entry, long lineNumber, boolean completed) {
+            this.archive = archive;
+            this.entry = entry;
+            this.lineNumber = lineNumber;
+            this.completed = completed;
+        }
+
+        static ArchiveProgress at(String archive, String entry, long lineNumber) {
+            return new ArchiveProgress(archive, entry, lineNumber, false);
+        }
+
+        static ArchiveProgress completed(String archive) {
+            return new ArchiveProgress(archive, null, 0, true);
         }
     }
 

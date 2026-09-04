@@ -11,9 +11,10 @@ import org.apache.flink.util.OutputTag;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 final class CsvRecordProcessor extends ProcessFunction<ZipCsvSource.ZipLine, GenericRecord> {
-    static final OutputTag<String> REJECTED_RECORDS = new OutputTag<>("rejected-records") { };
+    static final OutputTag<String> REJECTED_RECORDS = new OutputTag<String>("rejected-records") { };
     private final String filter;
     private transient Schema schema;
     private transient Counter acceptedRecords;
@@ -25,7 +26,8 @@ final class CsvRecordProcessor extends ProcessFunction<ZipCsvSource.ZipLine, Gen
 
     @Override
     public void open(Configuration parameters) throws Exception {
-        schema = new Schema.Parser().parse(CsvRecordProcessor.class.getResourceAsStream("/schema.avsc"));
+        schema = new Schema.Parser().parse(Objects.requireNonNull(
+                CsvRecordProcessor.class.getResourceAsStream("/schema.avsc"), "Missing resource: /schema.avsc"));
         acceptedRecords = getRuntimeContext().getMetricGroup().counter("acceptedRecords");
         rejectedRecords = getRuntimeContext().getMetricGroup().counter("rejectedRecords");
     }
@@ -44,7 +46,7 @@ final class CsvRecordProcessor extends ProcessFunction<ZipCsvSource.ZipLine, Gen
             output.collect(record);
         } catch (IllegalArgumentException exception) {
             rejectedRecords.inc();
-            context.output(REJECTED_RECORDS, input.archive + "," + input.entry + "," + input.lineNumber + ","
+            context.output(REJECTED_RECORDS, csvEscape(input.archive) + "," + csvEscape(input.entry) + "," + input.lineNumber + ","
                     + csvEscape(exception.getMessage()) + "," + csvEscape(input.line));
         }
     }
@@ -85,7 +87,7 @@ final class CsvRecordProcessor extends ProcessFunction<ZipCsvSource.ZipLine, Gen
         return fields;
     }
 
-    private static String csvEscape(String value) {
-        return "\"" + value.replace("\"", "\"\"") + "\"";
+    static String csvEscape(String value) {
+        return "\"" + (value == null ? "" : value.replace("\"", "\"\"")) + "\"";
     }
 }

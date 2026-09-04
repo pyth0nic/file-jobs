@@ -17,4 +17,10 @@ class CsvRecordProcessorTest {
     void rejectsUnterminatedQuotedField() {
         assertThrows(IllegalArgumentException.class, () -> CsvRecordProcessor.parse("\"unterminated"));
     }
+
+    @Test
+    void escapesAllQuarantineFieldsAndHandlesNulls() {
+        assertEquals("\"a,\"\"b\"\"\"", CsvRecordProcessor.csvEscape("a,\"b\""));
+        assertEquals("\"\"", CsvRecordProcessor.csvEscape(null));
+    }
 }

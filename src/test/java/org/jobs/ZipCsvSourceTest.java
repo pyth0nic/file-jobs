@@ -11,6 +11,8 @@ class ZipCsvSourceTest {
         assertTrue(ZipCsvSource.isCsvEntry("nested/data.CSV"));
         assertFalse(ZipCsvSource.isCsvEntry("../data.csv"));
         assertFalse(ZipCsvSource.isCsvEntry("/data.csv"));
+        assertFalse(ZipCsvSource.isCsvEntry("\\\\server\\data.csv"));
+        assertFalse(ZipCsvSource.isCsvEntry("C:\\data.csv"));
         assertFalse(ZipCsvSource.isCsvEntry("data.txt"));
     }
 }

@@ -17,6 +17,8 @@ import org.apache.flink.connector.file.sink.FileSink;
 import org.apache.flink.api.common.serialization.SimpleStringEncoder;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.OnCheckpointRollingPolicy;
 
+import java.util.Objects;
+
 public class FileSearchJob {
     public static void main(String[] args) throws Exception {
         JobConfig job = JobConfig.parse(args);
@@ -38,7 +40,8 @@ public class FileSearchJob {
         SingleOutputStreamOperator<GenericRecord> records = lines.process(new CsvRecordProcessor(job.filter))
                 .name("validate-csv-records");
 
-        Schema schema = new Schema.Parser().parse(FileSearchJob.class.getResourceAsStream("/schema.avsc"));
+        Schema schema = new Schema.Parser().parse(Objects.requireNonNull(
+                FileSearchJob.class.getResourceAsStream("/schema.avsc"), "Missing resource: /schema.avsc"));
         FileSink<GenericRecord> recordsSink = FileSink
                 .forBulkFormat(new Path(job.output), ParquetAvroWriters.forGenericRecord(schema))
                 .withRollingPolicy(OnCheckpointRollingPolicy.build())

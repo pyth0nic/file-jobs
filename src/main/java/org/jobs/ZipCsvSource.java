@@ -75,6 +75,7 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
              InputStream limited = new LimitedInputStream(raw, maxArchiveBytes, "archive");
              ZipInputStream zip = new ZipInputStream(limited, StandardCharsets.UTF_8)) {
             int entries = 0;
+            long csvEntryIndex = 0;
             boolean foundCheckpointEntry = checkpoint == null;
             ZipEntry entry;
             while (running && (entry = zip.getNextEntry()) != null) {
@@ -83,8 +84,9 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
                     zip.closeEntry();
                     continue;
                 }
+                long currentEntryIndex = csvEntryIndex++;
                 if (!foundCheckpointEntry) {
-                    if (!entry.getName().equals(checkpoint.entry)) {
+                    if (checkpoint.entryIndex != currentEntryIndex || !entry.getName().equals(checkpoint.entry)) {
                         zip.closeEntry();
                         continue;
                     }
@@ -96,14 +98,14 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
                 long lineNumber = 0;
                 while (running && (line = lines.readLine()) != null) {
                     lineNumber++;
-                    if (checkpoint != null && entry.getName().equals(checkpoint.entry)
-                            && lineNumber <= checkpoint.lineNumber) {
+                    if (checkpoint != null && currentEntryIndex == checkpoint.entryIndex
+                            && entry.getName().equals(checkpoint.entry) && lineNumber <= checkpoint.lineNumber) {
                         continue;
                     }
                     synchronized (context.getCheckpointLock()) {
                         context.collect(new ZipLine(archive, entry.getName(), lineNumber, line));
                         synchronized (progress) {
-                            progress.put(archive, ArchiveProgress.at(archive, entry.getName(), lineNumber));
+                            progress.put(archive, ArchiveProgress.at(archive, entry.getName(), currentEntryIndex, lineNumber));
                         }
                     }
                 }
@@ -141,8 +143,7 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
         progress = new HashMap<>();
         for (ArchiveProgress checkpoint : progressState.get()) {
             ArchiveProgress existing = progress.get(checkpoint.archive);
-            if (existing == null || checkpoint.completed
-                    || (!existing.completed && checkpoint.lineNumber > existing.lineNumber)) {
+            if (existing == null || checkpoint.completed || checkpoint.isLaterThan(existing)) {
                 progress.put(checkpoint.archive, checkpoint);
             }
         }
@@ -171,24 +172,34 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
     public static final class ArchiveProgress implements java.io.Serializable {
         public String archive;
         public String entry;
+        public long entryIndex;
         public long lineNumber;
         public boolean completed;
 
         public ArchiveProgress() { }
 
-        private ArchiveProgress(String archive, String entry, long lineNumber, boolean completed) {
+        private ArchiveProgress(String archive, String entry, long entryIndex, long lineNumber, boolean completed) {
             this.archive = archive;
             this.entry = entry;
+            this.entryIndex = entryIndex;
             this.lineNumber = lineNumber;
             this.completed = completed;
         }
 
-        static ArchiveProgress at(String archive, String entry, long lineNumber) {
-            return new ArchiveProgress(archive, entry, lineNumber, false);
+        static ArchiveProgress at(String archive, String entry, long entryIndex, long lineNumber) {
+            return new ArchiveProgress(archive, entry, entryIndex, lineNumber, false);
         }
 
         static ArchiveProgress completed(String archive) {
-            return new ArchiveProgress(archive, null, 0, true);
+            return new ArchiveProgress(archive, null, -1, 0, true);
+        }
+
+        boolean isLaterThan(ArchiveProgress other) {
+            if (other == null) return true;
+            if (completed) return true;
+            if (other.completed) return false;
+            if (entryIndex != other.entryIndex) return entryIndex > other.entryIndex;
+            return lineNumber > other.lineNumber;
         }
     }
 

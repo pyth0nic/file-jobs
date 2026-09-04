@@ -15,4 +15,12 @@ class ZipCsvSourceTest {
         assertFalse(ZipCsvSource.isCsvEntry("C:\\data.csv"));
         assertFalse(ZipCsvSource.isCsvEntry("data.txt"));
     }
+
+    @Test
+    void prefersLaterEntryProgressOverEarlierLineNumbers() {
+        ZipCsvSource.ArchiveProgress earlier = ZipCsvSource.ArchiveProgress.at("archive.zip", "a.csv", 0, 100);
+        ZipCsvSource.ArchiveProgress later = ZipCsvSource.ArchiveProgress.at("archive.zip", "b.csv", 1, 1);
+        assertTrue(later.isLaterThan(earlier));
+        assertFalse(earlier.isLaterThan(later));
+    }
 }

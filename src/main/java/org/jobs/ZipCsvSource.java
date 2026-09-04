@@ -100,7 +100,7 @@ final class ZipCsvSource extends RichParallelSourceFunction<ZipCsvSource.ZipLine
 
     @Override
     public void snapshotState(FunctionSnapshotContext context) throws Exception {
-        completedState.update(completed);
+        completedState.update(new java.util.ArrayList<>(completed));
     }
 
     @Override

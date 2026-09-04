@@ -24,7 +24,7 @@ final class CsvRecordProcessor extends ProcessFunction<ZipCsvSource.ZipLine, Gen
     }
 
     @Override
-    public void open(Configuration parameters) {
+    public void open(Configuration parameters) throws Exception {
         schema = new Schema.Parser().parse(CsvRecordProcessor.class.getResourceAsStream("/schema.avsc"));
         acceptedRecords = getRuntimeContext().getMetricGroup().counter("acceptedRecords");
         rejectedRecords = getRuntimeContext().getMetricGroup().counter("rejectedRecords");

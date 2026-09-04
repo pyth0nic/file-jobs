@@ -10,11 +10,12 @@ import org.apache.flink.core.fs.Path;
 import org.apache.flink.formats.parquet.avro.ParquetAvroWriters;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.connector.file.sink.FileSink;
-import org.apache.flink.connector.file.sink.rollingsink.OnCheckpointRollingPolicy;
 import org.apache.flink.api.common.serialization.SimpleStringEncoder;
+import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.OnCheckpointRollingPolicy;
 
 public class FileSearchJob {
     public static void main(String[] args) throws Exception {
@@ -34,7 +35,7 @@ public class FileSearchJob {
                 .addSource(new ZipCsvSource(job.inputs, job.maxEntries, job.maxArchiveBytes, job.maxEntryBytes))
                 .name("safe-zip-csv-source")
                 .setParallelism(job.parallelism);
-        DataStream<GenericRecord> records = lines.process(new CsvRecordProcessor(job.filter))
+        SingleOutputStreamOperator<GenericRecord> records = lines.process(new CsvRecordProcessor(job.filter))
                 .name("validate-csv-records");
 
         Schema schema = new Schema.Parser().parse(FileSearchJob.class.getResourceAsStream("/schema.avsc"));

@@ -23,5 +23,8 @@ class JobConfigTest {
         assertThrows(IllegalArgumentException.class, () -> JobConfig.parse(new String[] {
                 "--input", "a.zip", "--output", "out", "--checkpoint-dir", "checkpoints", "--parallelism", "0"
         }));
+        assertThrows(IllegalArgumentException.class, () -> JobConfig.parse(new String[] {
+                "--input", "a.zip", "--output", "out", "--checkpoint-dir", "checkpoints", "--unknown", "value"
+        }));
     }
 }

@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class JobConfig implements Serializable {
     final List<String> inputs;
@@ -41,19 +42,28 @@ final class JobConfig implements Serializable {
             if (!args[index].startsWith("--") || index + 1 == args.length || values.put(args[index], args[index + 1]) != null) {
                 throw new IllegalArgumentException(usage());
             }
+            Set<String> supported = Set.of("--input", "--output", "--quarantine", "--filter", "--checkpoint-dir",
+                    "--aws-region", "--parallelism", "--checkpoint-seconds", "--max-entries", "--max-archive-bytes",
+                    "--max-entry-bytes");
+            if (!supported.containsAll(values.keySet())) {
+                throw new IllegalArgumentException(usage());
+            }
         }
         String input = required(values, "--input");
         String output = required(values, "--output");
         String checkpointDirectory = required(values, "--checkpoint-dir");
         String quarantine = values.getOrDefault("--quarantine", output + "-quarantine");
-        int parallelism = positive(values.getOrDefault("--parallelism", "1"), "--parallelism");
+        int parallelism = positiveInt(values.getOrDefault("--parallelism", "1"), "--parallelism");
         long checkpointSeconds = positive(values.getOrDefault("--checkpoint-seconds", "60"), "--checkpoint-seconds");
-        int maxEntries = positive(values.getOrDefault("--max-entries", "10000"), "--max-entries");
+        int maxEntries = positiveInt(values.getOrDefault("--max-entries", "10000"), "--max-entries");
         long maxArchiveBytes = positive(values.getOrDefault("--max-archive-bytes", "1073741824"), "--max-archive-bytes");
         long maxEntryBytes = positive(values.getOrDefault("--max-entry-bytes", "134217728"), "--max-entry-bytes");
         List<String> inputs = Arrays.stream(input.split(",")).map(String::trim).filter(value -> !value.isEmpty()).toList();
         if (inputs.isEmpty()) {
             throw new IllegalArgumentException("--input must contain at least one ZIP URI");
+        }
+        if (output.equals(quarantine) || output.equals(checkpointDirectory) || quarantine.equals(checkpointDirectory)) {
+            throw new IllegalArgumentException("output, quarantine, and checkpoint paths must be distinct");
         }
         return new JobConfig(inputs, output, quarantine, values.getOrDefault("--filter", ""),
                 checkpointDirectory, values.getOrDefault("--aws-region", ""), parallelism,
@@ -68,7 +78,7 @@ final class JobConfig implements Serializable {
         return value;
     }
 
-    private static int positive(String value, String key) {
+    private static int positiveInt(String value, String key) {
         try {
             int result = Integer.parseInt(value);
             if (result > 0) return result;
